@@ -27,6 +27,41 @@ def process_results(main_counter):
 
     return counters
 
+def image_to_csv(image):
+    results = model(image)  # Run YOLO model on uploaded image
+    main_counter = []
+
+    for result in results:
+        json_res = result.to_json()
+        json_res = json.loads(json_res)
+        main_counter.append(json_res)
+
+    counters = process_results(main_counter)
+
+    # Find max count per class
+    max_counts = defaultdict(int)
+    for counter in counters:
+        for class_id, count in counter.items():
+            max_counts[class_id] = max(max_counts[class_id], count)
+
+    # Map class numbers to names
+    max_count_names = {names2[class_num]: count for class_num, count in max_counts.items()}
+
+    # Convert to DataFrame
+    df = pd.DataFrame(list(max_count_names.items()), columns=['Class Name', 'Count'])
+
+    # Add GMT timestamp
+    current_gmt_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    df['Timestamp (GMT)'] = current_gmt_time
+
+    # Save CSV
+    csv_path = 'max_class_counts.csv'
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
+    df.to_csv(csv_path, index=False)
+
+    return csv_path
+
 # Load model
 def main_app(vid_path):
     main_counter = []
@@ -94,14 +129,26 @@ def gradio_interface(video_file):
         return "No file uploaded"
     return main_app(video_file)
 
-demo = gr.Interface(
+video_interface = gr.Interface(
     fn=gradio_interface,
     inputs=gr.Video(label="Upload a video"),
     outputs=gr.File(label="Download CSV"),
-    title="Video Processing App",
-    description="Upload a video, process frames at 1 FPS, and get class count CSV."
+    title="Video Processor",
+    description="Upload a video, process frames at 1 FPS, and get object class counts in CSV."
 )
 
+image_interface = gr.Interface(
+    fn=image_to_csv,
+    inputs=gr.Image(type="numpy", label="Upload an image"),
+    outputs=gr.File(label="Download CSV"),
+    title="Image Processor",
+    description="Upload an image and get object class counts in CSV."
+)
+
+demo = gr.TabbedInterface(
+    interface_list=[video_interface, image_interface],
+    tab_names=["Video Upload", "Image Upload"]
+)
 
 if __name__ == '__main__':
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=True)
